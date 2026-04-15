@@ -1,0 +1,27 @@
+{
+  "name": "winixts",
+  "version": "1.0.0",
+  "description": "A developement application written in typescript for a AI assistant on Windows OS",
+  "homepage": "https://github.com/aahan-pat/winixts#readme",
+  "bugs": {
+    "url": "https://github.com/aahan-pat/winixts/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aahan-pat/winixts.git"
+  },
+  "license": "ISC",
+  "author": "Aahan Patel",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "winix"
+  },
+  "dependencies": {
+    "ollama": "^0.6.3",
+    "typescript": "^6.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
+  }
+}
