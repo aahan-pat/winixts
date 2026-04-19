@@ -6,3 +6,12 @@
 #   loop in win_agent.py
 # - Pushing events to TypeScript proactively over stdout (as opposed to the
 #   request/response pattern everything else uses)
+import threading
+
+class EventHandler:
+
+    def __init__(self):
+        ...
+
+
+

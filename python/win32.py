@@ -4,9 +4,11 @@
 # - Sending synthetic keyboard input (SendInput, keybd_event)
 # - Sending synthetic mouse input — clicks, moves (mouse_event, SendInput)
 # - Querying process start/stop state
+# - Launching applications and running shell commands
 #
 # This file knows nothing about UIA element trees — it only speaks Win32
 # handles (HWNDs) and raw input.
+import subprocess
 from datetime import datetime
 
 import psutil
@@ -14,13 +16,7 @@ import pywintypes
 import win32gui
 import win32process
 
-
-def _get_process_name(pid: int) -> str | None:
-    """Return the executable name for a PID, or None if the process is inaccessible."""
-    try:
-        return psutil.Process(pid).name()
-    except psutil.NoSuchProcess:
-        return None
+from common import get_process_name
 
 
 def get_window_info(hwnd: int) -> dict:
@@ -49,8 +45,11 @@ def get_window_info(hwnd: int) -> dict:
             "height": rect[3] - rect[1],
         },
         "pid": pid,
-        "process_name": _get_process_name(pid),
+        "process_name": get_process_name(pid),
         "visible": bool(visible),
+        # Identifies which backend produced this record so callers can
+        # distinguish Win32-enumerated windows from UIA-enumerated ones.
+        "source": "win32",
     }
 
 def get_process_info(pid: int) -> dict:
@@ -169,15 +168,68 @@ def get_all_visible_windows() -> list[dict]:
     return [get_window_info(hwnd) for hwnd in hwnds]
 
 
-def set_foreground_window(hwnd: int) -> None:
+def set_foreground_window(hwnd: int) -> dict:
     """Bring the window identified by hwnd to the foreground.
 
-    Raises RuntimeError if the HWND is invalid, stale, or focus is denied
-    (e.g. UAC elevation mismatch).
+    Returns a confirmation dict so the agent knows the action completed and
+    does not repeat it. Raises RuntimeError if the HWND is invalid, stale,
+    or focus is denied (e.g. UAC elevation mismatch).
     """
     try:
         win32gui.SetForegroundWindow(hwnd)
+        return {
+            "ok": True,
+            "hwnd": hwnd,
+            "title": win32gui.GetWindowText(hwnd),
+        }
     except pywintypes.error as e:
         raise RuntimeError(f"Could not focus window (hwnd={hwnd}): {e.strerror}") from e
+
+
+def launch_app(path: str) -> dict:
+    """Launch an executable and return its PID.
+
+    path may be a bare executable name resolvable via PATH (e.g. "notepad.exe")
+    or a full absolute path. The process is spawned detached — this call returns
+    immediately without waiting for the app to finish loading.
+    Raises RuntimeError if the executable is not found or access is denied.
+    """
+    try:
+        proc = subprocess.Popen(path)
+        return {"ok": True, "pid": proc.pid, "path": path}
+    except FileNotFoundError:
+        raise RuntimeError(f"Executable not found: {path}") from None
+    except PermissionError:
+        raise RuntimeError(f"Permission denied launching: {path}") from None
+    except Exception as e:
+        raise RuntimeError(f"Could not launch {path!r}: {e}") from e
+
+
+def run_command(command: str, timeout: int = 30) -> dict:
+    """Run a shell command and return its output.
+
+    Executes via cmd.exe (shell=True) so built-ins like 'dir', 'echo', and
+    piped expressions work as expected. Blocks until the command exits or the
+    timeout expires. stdout and stderr are returned as stripped strings.
+    Raises RuntimeError if the timeout is exceeded.
+    """
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return {
+            "ok": result.returncode == 0,
+            "returncode": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"Command timed out after {timeout}s: {command}") from None
+    except Exception as e:
+        raise RuntimeError(f"Could not run command: {e}") from e
 
 
